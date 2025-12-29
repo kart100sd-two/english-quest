@@ -240,65 +240,64 @@ header.relative {
             document.getElementById('rate-display').innerText = val + 'x';
         }
 
-        function speak(text, shouldHighlight = false) {
-            // 読み上げ中の音声をキャンセル
-            window.speechSynthesis.cancel();
+ function speak(text, shouldHighlight = false) {
+    window.speechSynthesis.cancel();
+    let cleanText = text.replace(/^[A-Za-z\s\/\.]*:\s*/gm, "").replace(/&quot;/g, '"').replace(/\n/g, " ");
+    
+    let phoneticText = cleanText;
+    if (typeof pronunciationMap !== 'undefined') {
+        Object.keys(pronunciationMap).forEach(key => {
+            const regex = new RegExp(`\\b${key}\\b`, 'g');
+            phoneticText = phoneticText.replace(regex, pronunciationMap[key]);
+        });
+    }
+    
+    const utter = new SpeechSynthesisUtterance(phoneticText);
+    utter.lang = 'en-US';
+    utter.rate = currentSpeechRate; 
 
-            // 1. クリーンアップ：名前（Tina: など）を消し、改行をスペースに変換
-            let cleanText = text.replace(/^[A-Za-z\s\/\.]*:\s*/gm, "")
-                      .replace(/&quot;/g, '"')
-                      .replace(/\n/g, " ");
+    if (shouldHighlight) {
+        utter.onboundary = (event) => {
+            if (event.name === 'word') {
+                const textUpToHere = phoneticText.substring(0, event.charIndex);
+                const wordsArray = textUpToHere.match(/\S+/g) || [];
+                const currentWordIndex = wordsArray.length;
 
-
-            
-            // 2. ★発音補正：I を eye、a を uh に置き換える（単語の境界 \b を守る）
-            let phoneticText = cleanText;
-            if (typeof pronunciationMap !== 'undefined') {
-                Object.keys(pronunciationMap).forEach(key => {
-                    // \b を使うことで "interested" の中の "i" が変わるのを防ぎます
-                    const regex = new RegExp(`\\b${key}\\b`, 'g');
-                    phoneticText = phoneticText.replace(regex, pronunciationMap[key]);
-                });
-            }
-
-            // 読み上げ用のオブジェクト作成（補正後のテキストを使用）
-            const utter = new SpeechSynthesisUtterance(phoneticText);
-            utter.lang = 'en-US';
-
-            // スライダーで設定した速度を適用
-            utter.rate = currentSpeechRate;
-
-            // 3. ハイライト処理（教科書モードのみ）
-            if (shouldHighlight) {
-                utter.onboundary = (event) => {
-                    if (event.name === 'word') {
-                        // 現在読んでいる位置までの単語数を数える
-                        const textUpToHere = phoneticText.substring(0, event.charIndex);
-                        const wordsArray = textUpToHere.match(/\S+/g) || [];
-                        const currentWordIndex = wordsArray.length;
-
-                        // 既存のハイライトを消去
-                        document.querySelectorAll('.reading-word').forEach(el => el.classList.remove('reading-word'));
-
-                        // 該当する単語スパンを光らせる
-                        const currentWordSpan = document.getElementById(`read-word-${currentWordIndex}`);
-                        if (currentWordSpan) {
-                            currentWordSpan.classList.add('reading-word');
-                            currentWordSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }
-                };
-
-                utter.onend = () => {
-                    document.querySelectorAll('.reading-word').forEach(el => el.classList.remove('reading-word'));
-                };
-            } else {
-                // ハイライト不要なモード（クイズなど）では、色を確実に消す
+                // 1. 全てのハイライトを一旦リセット
                 document.querySelectorAll('.reading-word').forEach(el => el.classList.remove('reading-word'));
-            }
+                document.querySelectorAll('.jp-highlight').forEach(el => {
+                    el.classList.remove('jp-highlight', 'text-rose-600', 'font-bold', 'text-lg');
+                    el.classList.add('text-slate-400', 'text-sm');
+                });
 
-            window.speechSynthesis.speak(utter);
-        }
+                // 2. 現在の英語単語を光らせる
+                const currentWordSpan = document.getElementById(`read-word-${currentWordIndex}`);
+                if (currentWordSpan) {
+                    currentWordSpan.classList.add('reading-word');
+                    
+                    // 3. ★連動する日本語を光らせる
+                    const sentenceId = currentWordSpan.getAttribute('data-s-id');
+                    const jpId = sentenceId.replace('s-', 'jp-sentence-');
+                    const jpSpan = document.getElementById(jpId);
+                    if (jpSpan) {
+                        jpSpan.classList.remove('text-slate-400', 'text-sm');
+                        jpSpan.classList.add('jp-highlight', 'text-rose-600', 'font-bold', 'text-lg');
+                    }
+                    currentWordSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        };
+
+        utter.onend = () => {
+            document.querySelectorAll('.reading-word').forEach(el => el.classList.remove('reading-word'));
+            document.querySelectorAll('.jp-highlight').forEach(el => {
+                el.classList.remove('jp-highlight', 'text-rose-600', 'font-bold', 'text-lg');
+                el.classList.add('text-slate-400', 'text-sm');
+            });
+        };
+    }
+    window.speechSynthesis.speak(utter);
+}
 
 
         async function selectMode(mode) {
@@ -438,54 +437,7 @@ header.relative {
         }
 
 
-        function displayPart(unitId, partIndex) {
-            const part = allData[unitId].parts[partIndex];
-            const storyArea = document.getElementById('story-display-area');
 
-            // 1. 本文エリア
-            storyArea.innerHTML = `
-        <h2 class="text-orange-500 font-black mb-4 text-2xl border-l-8 border-orange-500 pl-4">${part.partTitle}</h2>
-        <div class="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100 shadow-inner">
-            <p class="text-xl leading-relaxed mb-6 font-medium text-slate-700">${part.en}</p>
-            <p class="text-base text-slate-500 border-t pt-4 leading-relaxed">${part.jp}</p>
-        </div>
-        <hr class="my-8 border-orange-100">
-        <h4 class="font-black text-center mb-6 text-orange-400 tracking-widest uppercase">Reading Check</h4>
-    `;
-
-            // 2. クイズエリア
-            part.ox_quiz.forEach((q, idx) => {
-                storyArea.innerHTML += `
-            <div class="mb-6 p-6 bg-white border-2 border-slate-100 rounded-[2rem] shadow-sm">
-                <p class="font-bold mb-6 text-lg text-slate-700 italic">" ${q.q_en} "</p>
-                <div class="flex gap-4">
-                    <button onclick="checkPartOX('${unitId}', ${partIndex}, ${idx}, '〇')" class="flex-1 py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl font-black shadow-lg transition-all">TRUE (〇)</button>
-                    <button onclick="checkPartOX('${unitId}', ${partIndex}, ${idx}, '×')" class="flex-1 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black shadow-lg transition-all">FALSE (×)</button>
-                </div>
-                <div id="part-ox-feedback-${idx}" class="mt-6 hidden p-4 rounded-2xl border leading-relaxed">
-                    <p id="part-ox-qjp-${idx}" class="font-bold text-slate-600 mb-2"></p>
-                    <p id="part-ox-exp-${idx}" class="text-sm text-slate-500"></p>
-                </div>
-            </div>
-        `;
-            });
-
-            // 3. ナビゲーションボタン群（ここでまとめて追加）
-            const navDiv = document.createElement('div');
-            navDiv.className = "mt-12 flex flex-col gap-3 pb-10";
-            navDiv.innerHTML = `
-        <button onclick="renderPartSelect('${unitId}')" class="w-full py-4 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-2xl font-black transition-all flex items-center justify-center gap-2">
-            <span>←</span> パート一覧に戻る
-        </button>
-        <button onclick="renderStoryIndex()" class="w-full py-4 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-2xl font-black transition-all flex items-center justify-center gap-2">
-            単元を選び直す
-        </button>
-        <button onclick="location.reload()" class="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-400 rounded-2xl font-black transition-all flex items-center justify-center gap-2">
-            🏠 メインメニュー
-        </button>
-    `;
-            storyArea.appendChild(navDiv);
-        }
 
         // 判定ロジック
         function checkPartOX(unitId, partIndex, qIndex, userAnswer) {
@@ -509,50 +461,142 @@ header.relative {
             }
         }
 
-        function displayTextbook(unitId, partIndex) {
-            const part = allData[unitId].parts[partIndex];
-            const storyArea = document.getElementById('story-display-area');
 
-            // 教科書本文用データ（フルテキスト）
-            const textEn = part.full_en || part.en;
-            const textJp = part.full_jp || part.jp;
+function displayPart(unitId, partIndex) {
+    const part = allData[unitId].parts[partIndex];
+    const storyArea = document.getElementById('story-display-area');
 
-            // --- 教科書本文のハイライト用分割ロジック ---
-            let wordGlobalIndex = 0;
-            const lines = textEn.split('\n');
-            const highlightedEn = lines.map(line => {
-                // 名前（Tina: など）を抽出
-                const namePartMatch = line.match(/^([A-Za-z\s\/\.]*:\s*)/);
-                let namePart = "";
-                let dialoguePart = line;
+    // 英語と日本語を「改行」で分割して、フレーズごとのペアを作る
+    const linesEn = part.en.split('\n');
+    const linesJp = part.jp.split('\n');
 
-                if (namePartMatch) {
-                    namePart = `<span class="text-slate-400 font-bold">${namePartMatch[1]}</span>`;
-                    dialoguePart = line.substring(namePartMatch[1].length);
-                }
+    let wordGlobalIndex = 0;
+    let htmlSummary = "";
 
-                // セリフ部分を単語ごとに分割してIDを付与
-                const words = dialoguePart.trim().split(/\s+/);
-                const spans = words.map(word => {
-                    if (word === "") return "";
-                    const span = `<span id="read-word-${wordGlobalIndex}" class="transition-colors">${word}</span>`;
-                    wordGlobalIndex++;
-                    return span;
-                }).join(' ');
+    linesEn.forEach((line, sIdx) => {
+        // 英語の単語をスパンにする（記号も一緒に含める）
+        const enSpans = line.trim().split(/\s+/).map(word => {
+            if (word === "") return "";
+            // 文ID（data-s-id）を付与して日本語と紐付け
+            const span = `<span id="read-word-${wordGlobalIndex}" data-s-id="s-summary-${sIdx}" class="transition-colors">${word}</span>`;
+            wordGlobalIndex++;
+            return span;
+        }).join(' ');
 
-                return namePart + spans;
-            }).join('<br>');
+        // 日本語の文（英語のフレーズに対応して光る）
+        const jpSpan = `<span id="jp-sentence-summary-${sIdx}" class="text-slate-400 transition-all duration-300 block mt-1 mb-4 text-sm">${linesJp[sIdx] || ""}</span>`;
 
-            // --- HTML生成（あらすじとクイズを除去） ---
-            storyArea.innerHTML = `
+        htmlSummary += `<div class="mb-4">${enSpans}${jpSpan}</div>`;
+    });
+
+    storyArea.innerHTML = `
+        <div class="mb-6 flex flex-col gap-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-orange-500 font-black text-2xl border-l-8 border-orange-500 pl-4">${part.partTitle}</h2>
+                <button onclick="speak(\`${part.en.replace(/`/g, "\\`").replace(/\$/g, "\\$").replace(/"/g, "&quot;")}\`, true)" 
+                        class="bg-orange-500 text-white px-6 py-2 rounded-full font-bold shadow-lg active:scale-95">
+                    📢 要約を聞く
+                </button>
+            </div>
+            
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4 shadow-sm">
+                <span class="text-xs font-bold text-slate-400 uppercase">Speed</span>
+                <input type="range" min="0.5" max="1.5" step="0.1" value="${currentSpeechRate}" 
+                       oninput="updateRate(this.value)" 
+                       class="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500">
+                <span id="rate-display" class="text-sm font-black text-orange-500 w-10">${currentSpeechRate}x</span>
+            </div>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100 shadow-inner">
+            <div id="en-text-container" class="text-xl leading-relaxed font-medium text-slate-700">
+                ${htmlSummary}
+            </div>
+        </div>
+        
+        <hr class="my-8 border-orange-100">
+        <h4 class="font-black text-center mb-6 text-orange-400 tracking-widest uppercase">Reading Check</h4>
+        `;
+
+    // クイズエリアとナビゲーション（ここは変更なし）
+    part.ox_quiz.forEach((q, idx) => {
+        storyArea.innerHTML += `
+            <div class="mb-6 p-6 bg-white border-2 border-slate-100 rounded-[2rem] shadow-sm">
+                <p class="font-bold mb-6 text-lg text-slate-700 italic">" ${q.q_en} "</p>
+                <div class="flex gap-4">
+                    <button onclick="checkPartOX('${unitId}', ${partIndex}, ${idx}, '〇')" class="flex-1 py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl font-black shadow-lg">TRUE (〇)</button>
+                    <button onclick="checkPartOX('${unitId}', ${partIndex}, ${idx}, '×')" class="flex-1 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black shadow-lg">FALSE (×)</button>
+                </div>
+                <div id="part-ox-feedback-${idx}" class="mt-6 hidden p-4 rounded-2xl border">
+                    <p id="part-ox-qjp-${idx}" class="font-bold text-slate-600 mb-2"></p>
+                    <p id="part-ox-exp-${idx}" class="text-sm text-slate-500"></p>
+                </div>
+            </div>
+        `;
+    });
+
+    const navDiv = document.createElement('div');
+    navDiv.className = "mt-12 flex flex-col gap-3 pb-10";
+    navDiv.innerHTML = `
+        <button onclick="renderPartSelect('${unitId}')" class="w-full py-4 bg-orange-100 text-orange-700 rounded-2xl font-black active:scale-95">← パート一覧に戻る</button>
+        <button onclick="renderStoryIndex()" class="w-full py-4 bg-orange-50 text-orange-600 rounded-2xl font-black active:scale-95">単元を選び直す</button>
+        <button onclick="location.reload()" class="w-full py-4 bg-slate-100 text-slate-400 rounded-2xl font-black active:scale-95">🏠 メインメニュー</button>
+    `;
+    storyArea.appendChild(navDiv);
+}
+
+
+function displayTextbook(unitId, partIndex) {
+    const part = allData[unitId].parts[partIndex];
+    const storyArea = document.getElementById('story-display-area');
+    
+    // 元のテキストを取得
+    const fullTextEn = part.full_en || part.en;
+    const fullTextJp = part.full_jp || part.jp;
+    
+    // 改行で分割
+    const linesEn = fullTextEn.split('\n');
+    const linesJp = fullTextJp.split('\n');
+
+    let wordGlobalIndex = 0;
+    let htmlContent = "";
+
+    // 英語と日本語を一行ずつペアにしてHTMLを組み立てる
+    linesEn.forEach((line, sIdx) => {
+        // 名前（Tina: など）を抽出
+        const namePartMatch = line.match(/^([A-Za-z\s\/\.]*:\s*)/);
+        let namePart = "";
+        let dialoguePart = line;
+
+        if (namePartMatch) {
+            namePart = `<span class="text-slate-400 font-bold">${namePartMatch[1]}</span>`;
+            dialoguePart = line.substring(namePartMatch[1].length);
+        }
+
+        // 英語の単語を分割してスパンにする（文ID: s-XX を付与）
+        const enSpans = dialoguePart.trim().split(/\s+/).map(word => {
+            if (word === "") return "";
+            const span = `<span id="read-word-${wordGlobalIndex}" data-s-id="s-${sIdx}" class="transition-colors">${word}</span>`;
+            wordGlobalIndex++;
+            return span;
+        }).join(' ');
+
+        // 日本語の訳文（文単位でID: jp-sentence-XX を付与）
+        // 初期状態は薄いグレー（text-slate-400）
+        const jpSpan = `<span id="jp-sentence-${sIdx}" class="text-slate-400 transition-all duration-300 block mt-1 mb-4 text-sm">${linesJp[sIdx] || ""}</span>`;
+
+        htmlContent += `<div class="mb-2">${namePart}${enSpans}${jpSpan}</div>`;
+    });
+
+    // 画面の書き換え
+    storyArea.innerHTML = `
         <div class="mb-6 flex flex-col gap-4">
             <div class="flex justify-between items-center">
                 <h2 class="text-rose-500 font-black text-2xl border-l-8 border-rose-500 pl-4">${part.partTitle}</h2>
-  
-                    <button onclick="speak(\`${textEn.replace(/`/g, "\\`").replace(/\$/g, "\\$").replace(/"/g, "&quot;")}\`, true)" 
-                       class="bg-rose-500 text-white px-6 py-2 rounded-full font-bold shadow-lg active:scale-95">
-                       📢 本文を読み上げる
-                     </button>
+                <button onclick="speak(\`${fullTextEn.replace(/`/g, "\\`").replace(/\$/g, "\\$").replace(/"/g, "&quot;")}\`, true)" 
+                        class="bg-rose-500 text-white px-6 py-2 rounded-full font-bold shadow-lg active:scale-95">
+                    📢 本文を読み上げる
+                </button>
             </div>
             
             <div class="bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4 shadow-sm">
@@ -565,8 +609,9 @@ header.relative {
         </div>
         
         <div class="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100 shadow-inner">
-            <p id="en-text-container" class="text-xl leading-relaxed mb-6 font-medium text-slate-700">${highlightedEn}</p>
-            <p class="text-base text-slate-500 border-t pt-4 whitespace-pre-wrap">${textJp}</p>
+            <div id="en-text-container" class="text-xl leading-relaxed font-medium text-slate-700">
+                ${htmlContent}
+            </div>
         </div>
 
         <div class="mb-6 p-5 bg-rose-50 rounded-2xl border-2 border-rose-100">
@@ -578,26 +623,18 @@ header.relative {
             <h4 class="font-black text-slate-400 mb-3 text-sm uppercase tracking-widest">Keywords (Tap to Listen)</h4>
             <div class="flex flex-wrap gap-2">
                 ${part.vocab ? part.vocab.map(v => {
-                const englishWord = v.split('(')[0].trim();
-                return `
-                        <span onclick="speak('${englishWord.replace(/'/g, "\\'")}', false)" 
-                              class="cursor-pointer bg-slate-100 px-3 py-1 rounded-lg text-sm font-bold text-slate-600 hover:bg-rose-100 hover:text-rose-600 transition-all active:scale-95 shadow-sm border border-transparent">
-                            ${v}
-                        </span>`;
-            }).join('') : '単語データがありません'}
+                    const englishWord = v.split('(')[0].trim();
+                    return `<span onclick="speak('${englishWord.replace(/'/g, "\\'")}', false)" class="cursor-pointer bg-slate-100 px-3 py-1 rounded-lg text-sm font-bold text-slate-600 hover:bg-rose-100 hover:text-rose-600 active:scale-95 transition-all shadow-sm">${v}</span>`;
+                }).join('') : ''}
             </div>
         </div>
 
         <div class="flex flex-col gap-3 pb-10">
-            <button onclick="renderPartSelect('${unitId}')" class="w-full py-4 bg-rose-100 text-rose-700 rounded-2xl font-black shadow-sm active:scale-95 transition-all">
-                ← パート一覧に戻る
-            </button>
-            <button onclick="location.reload()" class="w-full py-4 bg-slate-100 text-slate-400 rounded-2xl font-black shadow-sm active:scale-95 transition-all">
-                🏠 メインメニュー
-            </button>
+            <button onclick="renderPartSelect('${unitId}')" class="w-full py-4 bg-rose-100 text-rose-700 rounded-2xl font-black shadow-sm active:scale-95">← パート一覧に戻る</button>
+            <button onclick="location.reload()" class="w-full py-4 bg-slate-100 text-slate-400 rounded-2xl font-black shadow-sm active:scale-95">🏠 メインメニュー</button>
         </div>
     `;
-        }
+}
         function renderUnitList() {
             const list = document.getElementById('unit-list'); list.innerHTML = "";
             const historyKey = `eng_quest_history_${gameMode}`;
